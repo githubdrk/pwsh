@@ -1,0 +1,55 @@
+pool:
+  vmImage: 'windows-latest'
+
+steps:
+  # Step 1: Check if .NET Framework 4.8 is Installed
+  - powershell: |
+      $keyPath = "HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full"
+      if (Test-Path $keyPath) {
+        $releaseKey = (Get-ItemProperty -Path $keyPath).Release
+        if ($releaseKey -ge 528040) {
+          Write-Output ".NET Framework 4.8 is already installed."
+        } else {
+          Write-Output ".NET Framework 4.8 is not installed."
+          exit 1
+        }
+      } else {
+        Write-Output ".NET Framework 4.8 is not installed."
+        exit 1
+      }
+    displayName: 'Check .NET Framework 4.8 Installation'
+
+  # Step 2: Download .NET Framework 4.8 Installer (only if not installed)
+  - powershell: |
+      $installDir = "C:\agent\_work"
+      if (-Not (Test-Path $installDir)) {
+        New-Item -Path $installDir -ItemType Directory
+      }
+
+      $downloadUrl = "https://download.visualstudio.microsoft.com/download/pr/2d6bb6b2-226a-4baa-bdec-798822606ff1/9b7b8746971ed51a1770ae4293618187/ndp48-web.exe"
+      $installerPath = "$installDir\ndp48-web.exe"
+      Invoke-WebRequest -Uri $downloadUrl -OutFile $installerPath
+    displayName: 'Download .NET Framework 4.8 Installer'
+
+  # Step 3: Install .NET Framework 4.8 Silently (only if needed)
+  - powershell: |
+      $installerPath = "C:\agent\_work\ndp48-web.exe"
+      Start-Process -FilePath $installerPath -ArgumentList "/q /norestart" -Wait
+    displayName: 'Install .NET Framework 4.8 Silently'
+
+  # Step 4: Verify .NET Framework 4.8 Installation (again for confirmation)
+  - powershell: |
+      $keyPath = "HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full"
+      if (Test-Path $keyPath) {
+        $releaseKey = (Get-ItemProperty -Path $keyPath).Release
+        if ($releaseKey -ge 528040) {
+          Write-Output ".NET Framework 4.8 or later is successfully installed."
+        } else {
+          Write-Error ".NET Framework 4.8 installation failed."
+          exit 1
+        }
+      } else {
+        Write-Error ".NET Framework 4.8 installation failed."
+        exit 1
+      }
+    displayName: 'Verify .NET Framework 4.8 Installation'
