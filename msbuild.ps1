@@ -1,62 +1,128 @@
-# Script to build a Visual Studio solution file (.sln) using MSBuild
-
-# Function to check if MSBuild is available
-function Check-MSBuild {
-    Write-Host "Checking for MSBuild installation..."
-
-    # Try to locate MSBuild in common locations (adjust the path if needed)
-    $msbuildPath = "$env:ProgramFiles(x86)\Microsoft Visual Studio\2019\BuildTools\MSBuild\Current\Bin\MSBuild.exe"
-
-    if (-not (Test-Path $msbuildPath)) {
-        Write-Host "MSBuild is not installed in the default location."
-        $msbuildPath = Get-Command msbuild -ErrorAction SilentlyContinue
-
-        if (-not $msbuildPath) {
-            Write-Host "MSBuild is not installed. Please install the Build Tools for Visual Studio."
-            Exit
+steps:
+  # Step 1: Check .NET Framework 4.8 Installation
+  - powershell: |
+      $keyPath = "HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full"
+      if (Test-Path $keyPath) {
+        $releaseKey = (Get-ItemProperty -Path $keyPath).Release
+        if ($releaseKey -ge 528040) {
+          Write-Output ".NET Framework 4.8 is already installed."
+        } else {
+          Write-Output ".NET Framework 4.8 is not installed."
+          exit 1
         }
-    } else {
-        Write-Host "MSBuild found at: $msbuildPath"
-    }
-    return $msbuildPath
-}
+      } else {
+        Write-Output ".NET Framework 4.8 is not installed."
+        exit 1
+      }
+    displayName: 'Check .NET Framework 4.8 Installation'
 
-# Function to build the Visual Studio solution file
-function Build-Solution {
-    param (
-        [string]$solutionFilePath,
-        [string]$configuration = "Release"
-    )
+  # Step 2: Download .NET Framework 4.8 Installer (only if not installed)
+  - powershell: |
+      $installDir = "C:\agent\_work"
+      if (-Not (Test-Path $installDir)) {
+        New-Item -Path $installDir -ItemType Directory
+      }
 
-    # Check if solution file exists
-    if (-not (Test-Path $solutionFilePath)) {
-        Write-Host "The specified solution file does not exist: $solutionFilePath"
-        Exit
-    }
+      $downloadUrl = "https://download.visualstudio.microsoft.com/download/pr/2d6bb6b2-226a-4baa-bdec-798822606ff1/9b7b8746971ed51a1770ae4293618187/ndp48-web.exe"
+      $installerPath = "$installDir\ndp48-web.exe"
+      Invoke-WebRequest -Uri $downloadUrl -OutFile $installerPath
+    displayName: 'Download .NET Framework 4.8 Installer'
 
-    # Get MSBuild path
-    $msbuildPath = Check-MSBuild
+  # Step 3: Install .NET Framework 4.8 Silently (only if needed)
+  - powershell: |
+      $installerPath = "C:\agent\_work\ndp48-web.exe"
+      Start-Process -FilePath $installerPath -ArgumentList "/q /norestart" -Wait
+    displayName: 'Install .NET Framework 4.8 Silently'
 
-    # Execute MSBuild to build the solution
-    Write-Host "Building the solution..."
-    & "$msbuildPath" $solutionFilePath /p:Configuration=$configuration /m
+  # Step 4: Verify .NET Framework 4.8 Installation (again for confirmation)
+  - powershell: |
+      $keyPath = "HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full"
+      if (Test-Path $keyPath) {
+        $releaseKey = (Get-ItemProperty -Path $keyPath).Release
+        if ($releaseKey -ge 528040) {
+          Write-Output ".NET Framework 4.8 or later is successfully installed."
+          
+          # Step 5: Add .NET Framework path to system environment variables
+          $dotNetPath = "C:\Windows\Microsoft.NET\Framework\v4.0.30319"
+          if (-Not ($env:Path -contains $dotNetPath)) {
+            [System.Environment]::SetEnvironmentVariable("Path", $env:Path + ";$dotNetPath", [System.EnvironmentVariableTarget]::Machine)
+            Write-Output "Added .NET Framework path to system environment variables."
+          } else {
+            Write-Output ".NET Framework path is already in the system environment variables."
+          }
+        } else {
+          Write-Error ".NET Framework 4.8 installation failed."
+          exit 1
+        }
+      } else {
+        Write-Error ".NET Framework 4.8 installation failed."
+        exit 1
+      }
+    displayName: 'Verify .NET Framework Installation and Update Path'
 
-    # Check for errors
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "Build failed!" -ForegroundColor Red
-    } else {
-        Write-Host "Build succeeded!" -ForegroundColor Green
-    }
-}
+  # Step 6: Define paths
+  - powershell: |
+      # Define paths
+      $solutionPath = "C:\Path\To\YourSolution.sln"
+      $buildOutputPath = "C:\Path\To\Build\Output"
+      $unifiedAgentUrl = "https://unified-agent-download-url/whitesource-unified-agent.jar" # Get this from WhiteSource
+      $unifiedAgentJar = "C:\Path\To\whitesource-unified-agent.jar"
+      $configFilePath = "C:\Path\To\whitesource-config.properties"
 
-# Prompt user to input the solution file path
-$solutionFilePath = Read-Host "Enter the full path to the solution file (.sln)"
+      # API Key for WhiteSource
+      $apiKey = "YOUR_WHITESOURCE_API_KEY"  # Replace with your actual API key
+      $projectName = "YourProjectName"
 
-# Prompt user to choose the build configuration (Release or Debug)
-$configuration = Read-Host "Enter the build configuration (Release/Debug, default is Release)"
+      # 1. Build the Solution
+      Write-Host "Building the solution..."
+      & "msbuild.exe" $solutionPath /p:Configuration=Release /p:OutputPath=$buildOutputPath
 
-# Run the build process with default or user-provided configuration
-if ($configuration -eq "") {
-    $configuration = "Release"
-}
-Build-Solution -solutionFilePath $solutionFilePath -configuration $configuration
+      if ($LASTEXITCODE -ne 0) {
+          Write-Host "Build failed!" -ForegroundColor Red
+          exit 1
+      } else {
+          Write-Host "Build succeeded!" -ForegroundColor Green
+      }
+
+      # 2. Download WhiteSource Unified Agent
+      if (-Not (Test-Path $unifiedAgentJar)) {
+          Write-Host "Downloading WhiteSource Unified Agent..."
+          Invoke-WebRequest -Uri $unifiedAgentUrl -OutFile $unifiedAgentJar
+      } else {
+          Write-Host "WhiteSource Unified Agent already downloaded."
+      }
+
+      # 3. Configure WhiteSource (whitesource-config.properties)
+      # WhiteSource configuration settings, if not already present in a file.
+      $configContent = @"
+      # WhiteSource Unified Agent Configuration
+      apiKey=$apiKey
+      projectName=$projectName
+      productName=$projectName
+      projectToken=
+      checkPolicies=true
+      forceUpdate=true
+      forceCheckAllDependencies=true
+      includes=**/*.dll,**/*.exe,**/*.csproj,**/*.cs
+      # Exclude patterns
+      excludes=**/bin/**,**/obj/**,**/*.spec.cs,**/*.test.cs,**/*.tests.dll
+      excludeTestModules=true
+      failErrorLevel=ALL
+      offline=false
+      logLevel=info
+      buildArtifactsFolder=$buildOutputPath
+      "@
+
+      # Write the configuration file
+      Set-Content -Path $configFilePath -Value $configContent
+
+      # 4. Run the WhiteSource Unified Agent
+      Write-Host "Running WhiteSource scan..."
+      & "java" -jar $unifiedAgentJar -c $configFilePath
+
+      if ($LASTEXITCODE -ne 0) {
+          Write-Host "WhiteSource scan failed!" -ForegroundColor Red
+      } else {
+          Write-Host "WhiteSource scan succeeded!" -ForegroundColor Green
+      }
+    displayName: 'Build Solution and Run WhiteSource Scan'
