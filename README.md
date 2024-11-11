@@ -1,3 +1,4 @@
+```mermaid
 flowchart LR
     A[Start] --> B{Monitor Performance}
     B --> C{Determine Scaling Requirements}
