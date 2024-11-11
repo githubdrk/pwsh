@@ -9,4 +9,3 @@ flowchart LR
     F --> G{Apply Scaling Changes};
     G --> H{Monitor and Adjust};
     H --> B;
-```
